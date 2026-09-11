@@ -1,0 +1,152 @@
+@using Microsoft.JSInterop
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+<div class="pdf-viewer @Class" style="--pdf-viewer-height:@Height" @attributes="AdditionalAttributes">
+    <div class="pdf-toolbar" role="toolbar" aria-label="PDF controls">
+        <div class="pdf-toolbar-group">
+            <button type="button" class="pdf-icon-button" @onclick="PreviousPageAsync" disabled="@(CurrentPage <= 1)" aria-label="Previous page" title="Previous page">‹</button>
+            <label class="pdf-page-control">
+                <span class="sr-only">Page</span>
+                <input type="number" min="1" max="@PageCount" value="@CurrentPage" @onchange="GoToPageAsync" aria-label="Current page" />
+                <span>/ @PageCount</span>
+            </label>
+            <button type="button" class="pdf-icon-button" @onclick="NextPageAsync" disabled="@(CurrentPage >= PageCount)" aria-label="Next page" title="Next page">›</button>
+        </div>
+
+        <div class="pdf-toolbar-group pdf-zoom-group">
+            <button type="button" class="pdf-icon-button" @onclick="ZoomOutAsync" aria-label="Zoom out" title="Zoom out">−</button>
+            <span class="pdf-zoom-value" aria-live="polite">@ZoomPercent%</span>
+            <button type="button" class="pdf-icon-button" @onclick="ZoomInAsync" aria-label="Zoom in" title="Zoom in">+</button>
+            <button type="button" class="pdf-text-button" @onclick="FitWidthAsync">Fit</button>
+        </div>
+
+        <div class="pdf-toolbar-spacer"></div>
+        <div class="pdf-toolbar-group">
+            <button type="button" class="pdf-text-button pdf-desktop-only" @onclick="PrintAsync">Print</button>
+            <a class="pdf-text-button" href="@Url" download="@FileName" target="_blank" rel="noopener">Download</a>
+            <button type="button" class="pdf-icon-button" @onclick="FullscreenAsync" aria-label="Fullscreen" title="Fullscreen">⛶</button>
+        </div>
+    </div>
+
+    <div @ref="ViewerElement" class="pdf-canvas-container" tabindex="0" aria-label="PDF document">
+        @if (!string.IsNullOrWhiteSpace(ErrorMessage))
+        {
+            <div class="pdf-state pdf-error" role="alert">@ErrorMessage</div>
+        }
+        else if (IsLoading)
+        {
+            <div class="pdf-state"><span class="pdf-spinner" aria-hidden="true"></span><span>Loading document…</span></div>
+        }
+        <canvas class="pdf-page-canvas" @ref="CanvasElement"></canvas>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Url { get; set; } = string.Empty;
+    [Parameter] public string FileName { get; set; } = "document.pdf";
+    [Parameter] public string Height { get; set; } = "min(78vh, 900px)";
+    [Parameter] public string? Class { get; set; }
+    [Parameter(CaptureUnmatchedValues = true)] public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private ElementReference ViewerElement;
+    private ElementReference CanvasElement;
+    private IJSObjectReference? _module;
+    private int CurrentPage = 1;
+    private int PageCount = 1;
+    private int ZoomPercent = 100;
+    private bool IsLoading = true;
+    private string? ErrorMessage;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        _module = await JS.InvokeAsync<IJSObjectReference>("import", "./_content/PdfViewer/pdf-viewer.js");
+        await LoadDocumentAsync();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_module is not null)
+        {
+            CurrentPage = 1;
+            PageCount = 1;
+            IsLoading = true;
+            ErrorMessage = null;
+            await LoadDocumentAsync();
+        }
+    }
+
+    private async Task LoadDocumentAsync()
+    {
+        if (_module is null || string.IsNullOrWhiteSpace(Url)) return;
+        try
+        {
+            var result = await _module.InvokeAsync<PdfLoadResult>("load", ViewerElement, CanvasElement, Url);
+            PageCount = Math.Max(1, result.PageCount);
+            ZoomPercent = result.ZoomPercent;
+            IsLoading = false;
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (JSException ex)
+        {
+            ErrorMessage = $"Unable to load this PDF. {ex.Message}";
+            IsLoading = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task PreviousPageAsync() => await SetPageAsync(CurrentPage - 1);
+    private async Task NextPageAsync() => await SetPageAsync(CurrentPage + 1);
+
+    private async Task GoToPageAsync(ChangeEventArgs args)
+    {
+        if (int.TryParse(args.Value?.ToString(), out var page)) await SetPageAsync(page);
+    }
+
+    private async Task SetPageAsync(int page)
+    {
+        if (_module is null || page < 1 || page > PageCount) return;
+        CurrentPage = page;
+        await _module.InvokeVoidAsync("goToPage", page);
+    }
+
+    private async Task ZoomInAsync() => await SetZoomAsync(ZoomPercent + 10);
+    private async Task ZoomOutAsync() => await SetZoomAsync(ZoomPercent - 10);
+
+    private async Task SetZoomAsync(int zoom)
+    {
+        if (_module is null) return;
+        ZoomPercent = Math.Clamp(zoom, 50, 250);
+        await _module.InvokeVoidAsync("setZoom", ZoomPercent);
+    }
+
+    private async Task FitWidthAsync()
+    {
+        if (_module is null) return;
+        ZoomPercent = await _module.InvokeAsync<int>("fitWidth");
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task PrintAsync()
+    {
+        if (_module is not null) await _module.InvokeVoidAsync("print", Url);
+    }
+
+    private async Task FullscreenAsync()
+    {
+        if (_module is not null) await _module.InvokeVoidAsync("fullscreen", ViewerElement);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_module is not null)
+        {
+            try { await _module.InvokeVoidAsync("dispose"); } catch (JSDisconnectedException) { }
+            await _module.DisposeAsync();
+        }
+    }
+
+    private sealed record PdfLoadResult(int PageCount, int ZoomPercent);
+}
+</content>
