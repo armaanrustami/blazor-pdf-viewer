@@ -45,6 +45,10 @@ The JavaScript module is loaded automatically from the library static-asset path
 
 The `Url` should be accessible to the browser. For a protected document, expose a short-lived authenticated URL or an endpoint that accepts the current browser session. The PDF server must allow the browser origin through CORS when the PDF is hosted on another origin.
 
+## Example
+
+The repository includes a polished host page at `Examples/DocumentViewer.razor`. Copy it and `Examples/DocumentViewer.razor.css` into a Blazor application, then browse to `/document-viewer`. The page uses a public PDF.js sample document so it can be tested immediately; replace `SamplePdfUrl` with your own PDF endpoint for production.
+
 ## Parameters
 
 | Parameter | Type | Default | Description |
@@ -67,3 +71,4 @@ The component uses `withCredentials: true`, so same-origin cookie-authenticated 
 - `PdfViewer/PdfViewer.razor.css` contains mobile-first responsive styling.
 - `wwwroot/pdf-viewer.js` loads PDF.js and renders the current page.
 - `PdfViewer/PdfViewer.csproj` packages the component as a Razor Class Library.
+- `Examples/DocumentViewer.razor` and `Examples/DocumentViewer.razor.css` provide a responsive sample host page.
