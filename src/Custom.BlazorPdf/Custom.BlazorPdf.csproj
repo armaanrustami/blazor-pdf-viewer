@@ -1,0 +1,65 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+    <PropertyGroup>
+        <PackageId>Custom.BlazorPdf</PackageId>
+        <TargetFramework>net10.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+        <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+        <Version>1.0.0</Version>
+        <Title>Custom.BlazorPdf</Title>
+        <Authors>armaanrustami</Authors>
+        <Company>armaanrustami</Company>
+        <Description>A simple, yet powerful Blazor PDF viewer</Description>
+        <Copyright>Custom.BlazorPdf OpenSource Apache-2.0</Copyright>
+        <PackageIcon>logo.png</PackageIcon>
+        <PackageProjectUrl>https://github.com/armaanrustami/blazor-pdf-viewer</PackageProjectUrl>
+        <RepositoryUrl>https://github.com/armaanrustami/blazor-pdf-viewer</RepositoryUrl>
+        <PackageTags>Blazor; MudBlazor; PDF</PackageTags>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
+        <RootNamespace>Custom.BlazorPdf</RootNamespace>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <InternalsVisibleTo Include="$(AssemblyName).MudBlazor" />
+    </ItemGroup>
+    
+    <Target Name="NpmCommandsDebug" BeforeTargets="Build" Condition="'$(Configuration)' == 'Debug'">
+        <Exec Command="npm run clean"/>
+        <Exec Command="npm run ts" />
+        <Exec Command="npm run css" />
+        <Exec Command="npm run copy-pdfjs-worker" />
+    </Target>
+
+    <Target Name="NpmCommandsRelease" BeforeTargets="Build" Condition="'$(Configuration)' == 'Release'">
+        <Exec Command="npm run clean"/>
+        <Exec Command="npm run ts-min" />
+        <Exec Command="npm run css" />
+        <Exec Command="npm run copy-pdfjs-worker" />
+    </Target>
+
+    <ItemGroup>
+        <SupportedPlatform Include="browser"/>
+    </ItemGroup>
+
+    <ItemGroup Condition=" '$(TargetFramework)' == 'net10.0' ">
+        <PackageReference Include="Microsoft.AspNetCore.Components" Version="10.0.*" />
+        <PackageReference Include="Microsoft.AspNetCore.Components.Web" Version="10.0.*" />
+    </ItemGroup>
+    
+    <ItemGroup>
+        <None Include="Icons/*.razor" Visible="false"/>
+    </ItemGroup>
+    
+    <ItemGroup>
+        <None Include="README.md">
+            <Pack>true</Pack>
+            <PackagePath>\</PackagePath>
+        </None>
+        <None Include="logo.png">
+            <Pack>true</Pack>
+            <PackagePath>\</PackagePath>
+        </None>
+    </ItemGroup>
+</Project>

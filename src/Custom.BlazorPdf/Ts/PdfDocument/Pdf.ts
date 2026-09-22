@@ -1,0 +1,285 @@
+import {PDFDocumentProxy, getFilenameFromUrl} from "pdfjs-dist"
+import {PdfState} from "./PdfState";
+import {PdfDrawLayer} from "./PdfDrawLayer";
+import {PdfMetadata} from "./PdfMetadata";
+import {PdfSearchResult} from "./PdfSearchResult";
+import {DocumentInitParameters} from "pdfjs-dist/types/src/display/api";
+
+const pdfInstances = {}
+
+interface PdfJsMetadataInfo {
+    Author?: string;
+    Creator?: string;
+    Keywords?: string;
+    Producer?: string;
+    Subject?: string;
+    Title?: string;
+    PDFFormatVersion?: string;
+    CreationDate?: string;
+    ModDate?: string;
+    Custom?: any
+}
+
+interface PdfJsMetadata {
+    info: PdfJsMetadataInfo;
+    metadata: any;
+}
+
+interface PdfJsTextContent {
+    items?: Array<PdfJsTextContentItem>;
+}
+
+interface PdfJsTextContentItem {
+    dir?: string;
+    fontName?: string;
+    hasEOL?: boolean;
+    height?: number;
+    str?: string;
+    transform?: number[],
+    width?: number;
+}
+
+export class Pdf {
+
+    public id: string;
+    public canvas: any;
+    public scale: number;
+    public rotation: number;
+    public url: string | null = null;
+    public fileBytes: Uint8Array | null = null;
+    public fileName: string | null = null;
+    public document: PDFDocumentProxy | null;
+    public metadata: PdfMetadata | null;
+    public textContent: Record<number, PdfJsTextContentItem[]>
+
+    public renderInProgress: boolean;
+    public scrollMode: boolean;
+    public pageCount: number;
+    public currentPage: number;
+    public previousPage: number;
+    public queuedPage: number | null;
+    public password: string | null;
+
+    public previousQuery: string | null;
+    public searchResults: PdfSearchResult[] = [];
+    public activeSearchIndex: number | null = null;
+
+    public drawLayer: PdfDrawLayer;
+
+    constructor(pdfState: PdfState) {
+
+        this.id = pdfState.id;
+        this.canvas = Pdf.getCanvas(this.id);
+        this.scale = pdfState.scale;
+        this.rotation = pdfState.orientation;
+        this.url = pdfState.url;
+        this.scrollMode = pdfState.scrollMode;
+        this.password = pdfState.password
+        this.drawLayer = new PdfDrawLayer(this.id);
+
+        if (pdfState.url) {
+            this.fileName = getFilenameFromUrl(this.url!)
+        } else {
+            this.fileName = pdfState.fileName!;
+            this.fileBytes = pdfState.fileBytes!;
+        }
+
+        this.document = null;
+        this.metadata = null;
+        this.renderInProgress = false;
+        this.pageCount = 0;
+        this.currentPage = 1;
+        this.previousPage = 1;
+        this.queuedPage = null;
+        this.textContent = {};
+        this.previousQuery = null;
+
+        // @ts-ignore
+        pdfInstances[this.id] = this;
+    }
+
+    public static getPdf(id: string): Pdf {
+        const canvas = this.getCanvas(id);
+        return Object.values(pdfInstances).filter((c: any) => c.canvas === canvas).pop() as Pdf;
+    }
+
+    public updatePdf(dto: PdfState) {
+        this.rotation = dto.orientation;
+        this.scale = dto.scale;
+        this.previousPage = this.currentPage;
+        this.currentPage = dto.currentPage;
+        this.activeSearchIndex = dto.activeResultIndex;
+    }
+
+    public getDocumentInitParams(): DocumentInitParameters {
+        let documentInitParams: DocumentInitParameters = {}
+
+        if (this.url) {
+            documentInitParams.url = this.url!;
+        }
+
+        if (this.fileBytes) {
+            documentInitParams.data = this.fileBytes!;
+        }
+
+        if (this.password) {
+            documentInitParams.password = this.password;
+        }
+
+        return documentInitParams;
+    }
+
+    // @ts-ignore
+    public async setDocument(doc: PDFDocumentProxy) {
+        this.document = doc;
+        this.pageCount = doc.numPages;
+
+        for (let i = 1; i < this.pageCount + 1; i++) {
+            const page = await doc.getPage(i);
+            const text = await page.getTextContent() as PdfJsTextContent;
+
+            if (!this.textContent.hasOwnProperty(i)) {
+                this.textContent[i] = text.items!;
+            }
+        }
+    }
+
+    public gotoPage(pageNumber: number): boolean {
+        if (this.document == null || pageNumber < 1 || pageNumber > this.pageCount) {
+            return false;
+        }
+
+        this.currentPage = pageNumber;
+        return true;
+    }
+
+    public rotate(rotation: number) {
+        if (rotation % 90 === 0)
+            this.rotation = rotation;
+    }
+
+    public zoom(scale: number) {
+        this.scale = scale;
+    }
+
+    public async getMetadata(): Promise<PdfMetadata> {
+        if (this.metadata !== null)
+            return this.metadata;
+
+        const data = await this.document!.getMetadata() as PdfJsMetadata;
+        const custom: Record<string, string> = {};
+
+        if (data.info.Custom) {
+            // @ts-ignore
+            for (const [key, value] of Object.entries(data.info.Custom)) {
+                if (value != null) {
+                    custom[key] = String(value);
+                }
+            }
+        }
+
+        this.metadata = new PdfMetadata(
+            data.info.Author,
+            data.info.Creator,
+            data.info.Keywords,
+            data.info.Producer,
+            data.info.Subject,
+            data.info.Title,
+            data.info.PDFFormatVersion,
+            this.parsePdfDate(data.info.CreationDate),
+            this.parsePdfDate(data.info.ModDate),
+            custom,
+        );
+
+        return this.metadata;
+    }
+
+    public clearSearchResults(): void {
+        this.previousQuery = null;
+    }
+
+    public search(query: string): Array<PdfSearchResult> {
+        query = query.toLowerCase();
+        this.previousQuery = query;
+
+        let result = new Array<PdfSearchResult>();
+        if (!query)
+            return result;
+
+        for (let page = 1; page < Object.keys(this.textContent).length + 1; page++) {
+            const textOnPage = this.textContent[page];
+
+            for (let i = 0; i < textOnPage.length; i++) {
+                const text = textOnPage[i].str!.toLowerCase();
+                if (text.indexOf(query) !== -1) {
+                    result.push(new PdfSearchResult(page, i));
+                }
+            }
+        }
+
+        this.searchResults = result;
+        return this.searchResults;
+    }
+
+    public getCanvasContext(): any {
+        return this.canvas.getContext("2d");
+    }
+
+    private static getCanvas(id: any) {
+        if (this.isDomSupported() && typeof id === 'string') {
+            id = document.getElementById(id);
+        } else if (id && id.length) {
+            id = id[0];
+        }
+
+        if (id && id.canvas !== undefined && id.canvas) {
+            id = id.canvas;
+        }
+
+        return id;
+    }
+
+    private static isDomSupported(): boolean {
+        return true;
+    }
+
+    private parsePdfDate(pdfDateStr?: string): Date | null {
+        // @ts-ignore
+        if (!pdfDateStr || !pdfDateStr.startsWith('D:')) return null;
+
+        const regex = /^D:(\d{4})(\d{2})?(\d{2})?(\d{2})?(\d{2})?(\d{2})?([Z\+\-])?(\d{2})'?(\d{2})'?/;
+        const match = regex.exec(pdfDateStr);
+
+        if (!match) return null;
+
+        const [
+            ,
+            year,
+            month = '01',
+            day = '01',
+            hour = '00',
+            minute = '00',
+            second = '00',
+            tzSign,
+            tzHour,
+            tzMin
+        ] = match;
+
+        const dateStr = `${year}-${month}-${day}T${hour}:${minute}:${second}`;
+
+        if (tzSign && tzSign !== 'Z' && tzHour && tzMin) {
+            return new Date(`${dateStr}${tzSign}${tzHour}:${tzMin}`);
+        }
+
+        return new Date(dateStr);
+    }
+}
+
+function base64ToUint8Array(base64: string): Uint8Array {
+    const raw = atob(base64);
+    const uint8 = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) {
+        uint8[i] = raw.charCodeAt(i);
+    }
+    return uint8;
+}

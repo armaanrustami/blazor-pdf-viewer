@@ -1,0 +1,66 @@
+using Custom.BlazorPdf;
+using Custom.BlazorPdf.Pdf;
+using Microsoft.JSInterop;
+
+internal class PdfInterop(IJSRuntime jsRuntime) : IAsyncDisposable
+{
+    private readonly Lazy<Task<IJSObjectReference>> js =
+        new(() => jsRuntime.InvokeAsync<IJSObjectReference>("import", $"./_content/Custom.BlazorPdf/blazorpdf.min.js?v={PdfViewerVersion.Version}").AsTask());
+
+    public async Task InitializeAsync(object objRef, Pdf pdf, bool useProjectWorker, bool enablePinchZoom = true)
+    {
+        var module = await js.Value;
+        await module.InvokeVoidAsync("initPdfViewer", objRef, pdf.GetPdfState(), useProjectWorker, enablePinchZoom);
+    }
+
+    public async Task UpdateAsync(object objRef, Pdf pdf)
+    {
+        var module = await js.Value;
+        await module.InvokeVoidAsync("updatePdf", objRef, pdf.GetPdfState());
+    }
+
+    public async Task PrintDocumentAsync(object objRef, Pdf pdf)
+    {
+        var module = await js.Value;
+        await module.InvokeVoidAsync("printDocument", objRef, pdf.Id);
+    }
+
+    public async Task DownloadDocumentAsync(object objRef, Pdf pdf)
+    {
+        var module = await js.Value;
+        await module.InvokeVoidAsync("downloadDocument", objRef, pdf.Id);
+    }
+    
+    public async Task ViewMetadataAsync(object objRef, Pdf pdf)
+    {
+        var module = await js.Value;
+        await module.InvokeVoidAsync("viewMetadata", objRef, pdf.Id);
+    }
+
+    public async Task UndoLastStrokeAsync(object objRef, Pdf pdf)
+    {
+        var module = await js.Value;
+        await module.InvokeVoidAsync("undoLastStroke", objRef, pdf.Id);
+    }
+    
+    public async Task ClearStrokesForPageAsync(object objRef, Pdf pdf)
+    {
+        var module = await js.Value;
+        await module.InvokeVoidAsync("clearStrokesForPage", objRef, pdf.Id);
+    }
+    
+    public async Task ClearSearchResults(object objRef, Pdf pdf)
+    {
+        var module = await js.Value;
+        await module.InvokeVoidAsync("clearSearchResults", objRef, pdf.Id);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (js.IsValueCreated)
+        {
+            var module = await js.Value;
+            await module.DisposeAsync();
+        }
+    }
+}
